@@ -4,6 +4,8 @@ using ESourcing.Sourcing.Repositories.Abstract;
 using ESourcing.Sourcing.Repositories.Concrete;
 using ESourcing.Sourcing.Settings.Abstract;
 using ESourcing.Sourcing.Settings.Concrete;
+using EventBusRabbitMQ;
+using EventBusRabbitMQ.Producer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -13,6 +15,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
+using RabbitMQ.Client;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -34,10 +37,47 @@ namespace ESourcing.Sourcing
         {
             services.Configure<SourcingDatabaseSettings>(Configuration.GetSection(nameof(SourcingDatabaseSettings)));
             services.AddSingleton<ISourcingDatabaseSettings>(sp => sp.GetRequiredService<IOptions<SourcingDatabaseSettings>>().Value);
-
+            #region Project Dependencies
             services.AddTransient<ISourcingContext, SourcingContext>();
             services.AddTransient<IAuctionRepository, AuctionRepository>();
             services.AddTransient<IBidRepository, BidRepository>();
+            services.AddAutoMapper(typeof(Startup));
+            #endregion
+
+
+            #region EventBus
+
+            services.AddSingleton<IRabbitMQPersistentConnection>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<DefaultRabbitMQPersistentConnection>>();
+
+                var factory = new ConnectionFactory()
+                {
+                    HostName = Configuration["EventBus:HostName"]
+                };
+
+                if (!string.IsNullOrWhiteSpace(Configuration["EventBus:UserName"]))
+                {
+                    factory.UserName = Configuration["EventBus:UserName"];
+                }
+
+                if (!string.IsNullOrWhiteSpace(Configuration["EventBus:Password"]))
+                {
+                    factory.UserName = Configuration["EventBus:Password"];
+                }
+
+                var retryCount = 5;
+                if (!string.IsNullOrWhiteSpace(Configuration["EventBus:RetryCount"]))
+                {
+                    retryCount = int.Parse(Configuration["EventBus:RetryCount"]);
+                }
+
+                return new DefaultRabbitMQPersistentConnection(factory, retryCount, logger);
+            });
+
+            services.AddSingleton<EventBusRabbitMQProducer>();
+
+            #endregion
 
             services.AddControllers();
             services.AddSwaggerGen(c =>
